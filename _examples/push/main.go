@@ -10,6 +10,7 @@ import (
 	"github.com/alfred-zhong/wserver"
 )
 
+// HTTP Rest API for pushing
 func main() {
 	pushURL := "http://127.0.0.1:12345/push"
 	contentType := "application/json"
