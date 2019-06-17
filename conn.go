@@ -62,8 +62,8 @@ func (c *Conn) Listen() {
 		}
 
 		message := websocket.FormatCloseMessage(code, "")
-		c.Conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(time.Second))
-		return nil
+		err := c.Conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(time.Second))
+		return err
 	})
 
 	// Keeps reading from Conn util get error.

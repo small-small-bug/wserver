@@ -1,13 +1,12 @@
 package main
 
 import (
+	"../../../wserver"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"time"
-
-	"github.com/alfred-zhong/wserver"
 )
 
 // HTTP Rest API for pushing

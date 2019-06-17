@@ -1,9 +1,8 @@
 package main
 
 import (
+	"../../../wserver"
 	"net/http"
-
-	"github.com/alfred-zhong/wserver"
 )
 
 func main() {
