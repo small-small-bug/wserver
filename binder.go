@@ -12,6 +12,122 @@ type eventConn struct {
 	Conn  *Conn
 }
 
+type CommConn struct {
+	conn    *Conn
+	commMap map[string]*Comm
+}
+
+type CommManager struct {
+	mu              sync.RWMutex
+	userConnCommMap map[string]*CommConn
+}
+
+func (m *CommManager) Bind(userID string, conn *Conn) error {
+
+	if userID == "" {
+		return errors.New("userID can't be empty")
+	}
+
+	if conn == nil {
+		return errors.New("conn can't be nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.userConnCommMap[userID]; ok {
+		return errors.New("already registered")
+	}
+	cc := CommConn{
+		conn: conn,
+	}
+	m.userConnCommMap[userID] = &cc
+
+	return nil
+}
+
+// remove all the commands
+// leave others to close the connection
+func (m *CommManager) Unbind(userID string, conn *Conn) error {
+
+	if userID == "" {
+		return errors.New("userID can't be empty")
+	}
+
+	if conn == nil {
+		return errors.New("conn can't be nil")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if cc, ok := m.userConnCommMap[userID]; ok {
+		if cc.conn == conn {
+			delete(m.userConnCommMap, userID)
+		} else {
+			return errors.New("cannot unbind it. it is not yours")
+		}
+	} else {
+		return errors.New("not found")
+	}
+
+	return nil
+}
+
+func (m *CommManager) lookCreate(userID, commID string) (*Comm, error) {
+	if userID == "" {
+		return nil, errors.New("userID can't be empty")
+	}
+
+	if commID == "" {
+		return nil, errors.New("userID can't be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if cc, ok := m.userConnCommMap[userID]; !ok {
+		return nil, errors.New("no such user")
+	} else if c, ok := cc.commMap[commID]; ok {
+		return c, nil
+	} else {
+		comm := Comm{
+			request:  nil,
+			response: nil,
+			waitCH:   make(chan struct{}),
+		}
+		cc.commMap[commID] = &comm
+		return &comm, nil
+	}
+}
+
+func (m *CommManager) lookReply(userID, commID string) (*Comm, error) {
+	if userID == "" {
+		return nil, errors.New("userID can't be empty")
+	}
+
+	if commID == "" {
+		return nil, errors.New("userID can't be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if cc, ok := m.userConnCommMap[userID]; !ok {
+		return nil, errors.New("no such user")
+	} else if c, ok := cc.commMap[commID]; ok {
+		return c, nil
+	} else {
+		comm := Comm{
+			request:  nil,
+			response: nil,
+			waitCH:   make(chan struct{}),
+		}
+		cc.commMap[commID] = &comm
+		return &comm, nil
+	}
+}
+
 // binder is defined to store the relation of userID and eventConn
 type binder struct {
 	mu sync.RWMutex

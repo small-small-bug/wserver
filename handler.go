@@ -178,10 +178,39 @@ func (s *pushHandler) push(userID, event, message string) (int, error) {
 	return cnt, nil
 }
 
+func (s *pushHandler) pushGet(userID, commID, message string) error {
+	if userID == "" || commID == "" || message == "" {
+		return errors.New("parameters(userId, commId, message) can't be empty")
+	}
+
+	// filter connections by userID and event, then push message
+	conns, err := s.binder.FilterConn(userID, event)
+	if err != nil {
+		return 0, fmt.Errorf("filter conn fail: %v", err)
+	}
+	cnt := 0
+	for i := range conns {
+		_, err := conns[i].Write([]byte(message))
+		if err != nil {
+			s.binder.Unbind(conns[i])
+			continue
+		}
+		cnt++
+	}
+
+	return cnt, nil
+}
+
 // PushMessage defines message struct send by client to push to each connected
 // websocket client.
 type PushMessage struct {
 	UserID  string `json:"userId"`
 	Event   string
 	Message string
+}
+
+type CommMessage struct {
+	UserID  string `json:"userId"`
+	CommID  string `json:"commId"`
+	Message string `json:"message"`
 }
