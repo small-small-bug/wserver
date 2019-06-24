@@ -32,6 +32,36 @@ type RegisterMessage struct {
 	Event string
 }
 
+type lookupHandler struct {
+	cm *CommManager
+}
+
+// if the channel is established in this server.
+// if not, return 404 respond
+// otherwise, 200 OK
+func (lh *lookupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := r.URL.Query()
+	userID := vars.Get("userid")
+
+	if userID == "" {
+		w.WriteHeader(http.StatusBadRequest)
+		w.Write([]byte(ErrRequestIllegal.Error()))
+		return
+	}
+
+	found, _ := lh.cm.isIn(userID)
+
+	if found {
+		w.WriteHeader(http.StatusNotFound)
+	}
+
+}
+
 // First try to upgrade connection to websocket. If success, connection will
 // be kept until client send close message or server drop them.
 func (wh *websocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -108,12 +138,11 @@ type pushHandler struct {
 	// authFunc defines to authorize request. The request will proceed only
 	// when it returns true.
 	authFunc func(r *http.Request) bool
-
-	binder *binder
+	cm       *CommManager
 }
 
 // Authorize if needed. Then decode the request and push message to each
-// realted websocket connection.
+// related websocket connection.
 func (s *pushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		w.WriteHeader(http.StatusMethodNotAllowed)
@@ -129,16 +158,16 @@ func (s *pushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// read request
-	var pm PushMessage
+	var msg CommMessage
 	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&pm); err != nil {
+	if err := decoder.Decode(&msg); err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrRequestIllegal.Error()))
 		return
 	}
 
 	// validate the data
-	if pm.UserID == "" || pm.Event == "" || pm.Message == "" {
+	if msg.UserID == "" || msg.CommID == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		w.Write([]byte(ErrRequestIllegal.Error()))
 		return
@@ -155,32 +184,20 @@ func (s *pushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	io.Copy(w, result)
 }
 
-func (s *pushHandler) push(userID, event, message string) (int, error) {
-	if userID == "" || event == "" || message == "" {
-		return 0, errors.New("parameters(userId, event, message) can't be empty")
-	}
+// wait until the client give the response
+// push a command, wait or not
+// if wait, got a channel and wait on it
+// if not, return after the command is successfully pushed
+//
+func (s *pushHandler) wait(userID, commID, message string) (string, error) {
 
-	// filter connections by userID and event, then push message
-	conns, err := s.binder.FilterConn(userID, event)
-	if err != nil {
-		return 0, fmt.Errorf("filter conn fail: %v", err)
-	}
-	cnt := 0
-	for i := range conns {
-		_, err := conns[i].Write([]byte(message))
-		if err != nil {
-			s.binder.Unbind(conns[i])
-			continue
-		}
-		cnt++
-	}
+	return "aa", nil
 
-	return cnt, nil
 }
 
-func (s *pushHandler) pushGet(userID, commID, message string) error {
+func (s *pushHandler) push(userID, commID, message string) (int, error) {
 	if userID == "" || commID == "" || message == "" {
-		return errors.New("parameters(userId, commId, message) can't be empty")
+		return 0, errors.New("parameters(userId, event, message) can't be empty")
 	}
 
 	// filter connections by userID and event, then push message

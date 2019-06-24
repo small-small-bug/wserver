@@ -6,15 +6,9 @@ import (
 	"sync"
 )
 
-// eventConn wraps Conn with a specified event type.
-type eventConn struct {
-	Event string
-	Conn  *Conn
-}
-
 type CommConn struct {
 	conn    *Conn
-	commMap map[string]*Comm
+	commMap map[string]*CommObject
 }
 
 type CommManager struct {
@@ -72,6 +66,21 @@ func (m *CommManager) Unbind(userID string, conn *Conn) error {
 	}
 
 	return nil
+}
+
+func (m *CommManager) isIn(userId string) (bool, error) {
+
+	if userID == "" {
+		return false, errors.New("userID can't be empty")
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, ok := m.userConnCommMap[userId]; ok {
+		return true, nil
+	}
+
+	return false, nil
 }
 
 func (m *CommManager) lookCreate(userID, commID string) (*Comm, error) {
