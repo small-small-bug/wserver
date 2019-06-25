@@ -73,7 +73,7 @@ func Test_Server_1(t *testing.T) {
 			break
 		}
 		b, _ := ioutil.ReadAll(r)
-		t.Logf("msg: %s", string(b))
+		t.Logf("Msg: %s", string(b))
 
 		cnt++
 	}

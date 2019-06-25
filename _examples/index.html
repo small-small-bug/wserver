@@ -25,7 +25,19 @@
             var insert = "<p>Connected to " + wsuri + "</p>";
             document.getElementsByClassName("content")[0].innerHTML += insert;
 
-            sock.send("{\"token\": \"" + token + "\", \"event\": \"" + e + "\"}")
+            var rm = {
+                "token": token,
+                "event": e
+            }
+
+            var mm = {
+                "kind": 1,
+                "body":  JSON.stringify(rm)
+            }
+            var msg = JSON.stringify(mm)
+
+              sock.send(msg)
+            console.log(msg)
             insert = "<p>Register message sent</p>";
             document.getElementsByClassName("content")[0].innerHTML += insert;
         };

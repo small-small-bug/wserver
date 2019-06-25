@@ -15,9 +15,9 @@ func main() {
 	contentType := "application/json"
 
 	for {
-		pm := wserver.PushMessage{
+		pm := wserver.CommMessage{
 			UserID:  "jack",
-			Event:   "topic1",
+			CommID:  "topic1",
 			Message: fmt.Sprintf("Hello in %s", time.Now().Format("2006-01-02 15:04:05.000")),
 		}
 		b, _ := json.Marshal(pm)

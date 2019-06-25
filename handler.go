@@ -3,11 +3,10 @@ package wserver
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -17,8 +16,8 @@ type websocketHandler struct {
 	// upgrader is used to upgrade request.
 	upgrader *websocket.Upgrader
 
-	// binder stores relations about websocket connection and userID.
-	binder *binder
+	// cm stores relations about websocket connection and userID.
+	cm *CommManager
 
 	// calcUserIDFunc defines to calculate userID by token. The userID will
 	// be equal to token if this function is nil.
@@ -28,8 +27,8 @@ type websocketHandler struct {
 // RegisterMessage defines message struct client send after connect
 // to the server.
 type RegisterMessage struct {
-	Token string
-	Event string
+	Token string `json:"token"`
+	Event string `json:"event"`
 }
 
 type lookupHandler struct {
@@ -54,7 +53,7 @@ func (lh *lookupHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	found, _ := lh.cm.isIn(userID)
+	found, _ := lh.cm.hasUser(userID)
 
 	if found {
 		w.WriteHeader(http.StatusNotFound)
@@ -72,30 +71,11 @@ func (wh *websocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer wsConn.Close()
 
 	// handle Websocket request
-	conn := NewConn(wsConn)
-	conn.AfterReadFunc = func(messageType int, r io.Reader) {
-		var rm RegisterMessage
-		decoder := json.NewDecoder(r)
-		if err := decoder.Decode(&rm); err != nil {
-			return
-		}
+	conn := NewConn(wsConn, wh)
 
-		// calculate userID by token
-		userID := rm.Token
-		if wh.calcUserIDFunc != nil {
-			uID, ok := wh.calcUserIDFunc(rm.Token)
-			if !ok {
-				return
-			}
-			userID = uID
-		}
-
-		// bind
-		wh.binder.Bind(userID, rm.Event, conn)
-	}
 	conn.BeforeCloseFunc = func() {
 		// unbind
-		wh.binder.Unbind(conn)
+		wh.cm.Unbind(conn)
 	}
 
 	conn.Listen()
@@ -105,29 +85,7 @@ func (wh *websocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // The userID can't be empty, but event can be empty. The event will be ignored
 // if empty.
 func (wh *websocketHandler) closeConns(userID, event string) (int, error) {
-	conns, err := wh.binder.FilterConn(userID, event)
-	if err != nil {
-		return 0, err
-	}
-
-	cnt := 0
-	for i := range conns {
-		// unbind
-		if err := wh.binder.Unbind(conns[i]); err != nil {
-			log.Printf("conn unbind fail: %v", err)
-			continue
-		}
-
-		// close
-		if err := conns[i].Close(); err != nil {
-			log.Printf("conn close fail: %v", err)
-			continue
-		}
-
-		cnt++
-	}
-
-	return cnt, nil
+	return 0, nil
 }
 
 // ErrRequestIllegal describes error when data of the request is unaccepted.
@@ -173,14 +131,30 @@ func (s *pushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	cnt, err := s.push(pm.UserID, pm.Event, pm.Message)
+	var obj *CommObject
+	var err error
+
+	defer s.cm.removeCommand(msg.UserID, msg.CommID)
+
+	obj, err = s.push(msg.UserID, msg.CommID, msg.Message)
+
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte(err.Error()))
 		return
 	}
 
-	result := strings.NewReader(fmt.Sprintf("message sent to %d clients", cnt))
+	d, _ := time.ParseDuration("1s")
+	err = s.wait(obj, d)
+
+	// timeout
+	if err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		w.Write([]byte(err.Error()))
+		return
+	}
+
+	result := strings.NewReader(obj.response.Msg)
 	io.Copy(w, result)
 }
 
@@ -189,33 +163,51 @@ func (s *pushHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // if wait, got a channel and wait on it
 // if not, return after the command is successfully pushed
 //
-func (s *pushHandler) wait(userID, commID, message string) (string, error) {
+func (s *pushHandler) wait(obj *CommObject, timeout time.Duration) error {
 
-	return "aa", nil
+	if obj == nil {
+		return errors.New("command object cannot be empty")
+	}
+
+	select {
+	case <-obj.waitCH:
+		return nil
+	case <-time.After(timeout):
+		return errors.New("timeout waiting command response")
+	}
 
 }
 
-func (s *pushHandler) push(userID, commID, message string) (int, error) {
+func (s *pushHandler) push(userID, commID, message string) (*CommObject, error) {
+
 	if userID == "" || commID == "" || message == "" {
-		return 0, errors.New("parameters(userId, event, message) can't be empty")
+		return nil, errors.New("parameters(userId, event, message) can't be empty")
 	}
+
+	var obj *CommObject
+	var ok error
+	if obj, ok = s.cm.newCommand(userID, commID); ok != nil {
+		return nil, errors.New("create new command failed")
+	}
+
+	request := CommRequest{
+		Id:  commID,
+		Msg: message,
+	}
+	obj.request = &request
+	obj.id = commID
 
 	// filter connections by userID and event, then push message
-	conns, err := s.binder.FilterConn(userID, event)
+	conn := obj.conn
+	raw, _ := json.Marshal(&request)
+
+	_, err := conn.Write(raw)
+
 	if err != nil {
-		return 0, fmt.Errorf("filter conn fail: %v", err)
-	}
-	cnt := 0
-	for i := range conns {
-		_, err := conns[i].Write([]byte(message))
-		if err != nil {
-			s.binder.Unbind(conns[i])
-			continue
-		}
-		cnt++
+		return nil, err
 	}
 
-	return cnt, nil
+	return obj, nil
 }
 
 // PushMessage defines message struct send by client to push to each connected

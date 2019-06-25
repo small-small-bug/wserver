@@ -58,15 +58,14 @@ type Server struct {
 // ListenAndServe listens on the TCP network address and handle websocket
 // request.
 func (s *Server) ListenAndServe() error {
-	b := &binder{
-		userID2EventConnMap: make(map[string]*[]eventConn),
-		connID2UserIDMap:    make(map[string]string),
+	cm := &CommManager{
+		userConnCommMap: make(map[string]*CommConn),
 	}
 
 	// websocket request handler
 	wh := websocketHandler{
 		upgrader: defaultUpgrader,
-		binder:   b,
+		cm:       cm,
 	}
 	if s.Upgrader != nil {
 		wh.upgrader = s.Upgrader
@@ -79,7 +78,7 @@ func (s *Server) ListenAndServe() error {
 
 	// push request handler
 	ph := pushHandler{
-		binder: b,
+		cm: cm,
 	}
 	if s.PushAuth != nil {
 		ph.authFunc = s.PushAuth
@@ -91,7 +90,7 @@ func (s *Server) ListenAndServe() error {
 }
 
 // Push filters connections by userID and event, then write message
-func (s *Server) Push(userID, event, message string) (int, error) {
+func (s *Server) Push(userID, event, message string) (*CommObject, error) {
 	return s.ph.push(userID, event, message)
 }
 

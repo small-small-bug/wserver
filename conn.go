@@ -1,15 +1,25 @@
 package wserver
 
 import (
+	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"io"
 	"log"
 	"sync"
 	"time"
-
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 )
+
+const (
+	RegisterMessageType = 1
+	NormalMessageType   = 255
+)
+
+type WSMessage struct {
+	Kind int    `json:"Kind"`
+	Body string `json:"Body"`
+}
 
 // Conn wraps websocket.Conn with Conn. It defines to listen and read
 // data from Conn.
@@ -22,6 +32,16 @@ type Conn struct {
 	once   sync.Once
 	id     string
 	stopCh chan struct{}
+
+	// if a socket is bound, then the string userId must not be empty
+	userId *string
+
+	// if the socket registered or not
+	registered bool
+
+	// the websocket handler
+	// must not be empty
+	wh *websocketHandler
 }
 
 // Write write p to the websocket connection. The error returned will always
@@ -39,7 +59,7 @@ func (c *Conn) Write(p []byte) (n int, err error) {
 	}
 }
 
-// GetID returns the id generated using UUID algorithm.
+// GetID returns the Id generated using UUID algorithm.
 func (c *Conn) GetID() string {
 	c.once.Do(func() {
 		u := uuid.New()
@@ -47,6 +67,80 @@ func (c *Conn) GetID() string {
 	})
 
 	return c.id
+}
+
+func (c *Conn) OnMessage(messageType int, r io.Reader) {
+	var wm WSMessage
+	decoder := json.NewDecoder(r)
+	if err := decoder.Decode(&wm); err != nil {
+		return
+	}
+
+	if wm.Kind == RegisterMessageType {
+		// TODO close socket in this case
+		// should exit goroutine
+		c.HandleRegister(wm.Body)
+		return
+	} else if wm.Kind == NormalMessageType {
+		c.HandleCommand(wm.Body)
+		return
+	}
+
+}
+
+func (c *Conn) HandleRegister(body string) error {
+
+	rm := RegisterMessage{}
+	err := json.Unmarshal([]byte(body), &rm)
+
+	if err != nil {
+		return err
+	}
+
+	wh := c.wh
+
+	userID := rm.Token
+	if wh.calcUserIDFunc != nil {
+		uID, ok := wh.calcUserIDFunc(rm.Token)
+		if !ok {
+			return errors.New("calcUserIDFunc failed")
+		}
+		userID = uID
+	}
+
+	// bind
+	return wh.cm.Bind(userID, c)
+
+}
+
+func (c *Conn) HandleCommand(body string) error {
+
+	cr := CommResponse{}
+
+	err := json.Unmarshal([]byte(body), &cr)
+
+	if err != nil {
+		return err
+	}
+
+	wh := c.wh
+	commandID := cr.Id
+
+	userID := c.userId
+	if userID == nil {
+		return errors.New("this connection is not registered yet")
+	}
+
+	obj, _ := wh.cm.lookupCommand(*userID, commandID)
+
+	if obj != nil {
+		return errors.New("cannot find this command")
+	}
+
+	obj.response = &cr
+	close(obj.waitCH)
+
+	return nil
 }
 
 // Listen listens for receive data from websocket connection. It blocks
@@ -78,10 +172,9 @@ ReadLoop:
 				// TODO: handle read error maybe
 				break ReadLoop
 			}
+			// TODO handle error
+			c.OnMessage(messageType, r)
 
-			if c.AfterReadFunc != nil {
-				c.AfterReadFunc(messageType, r)
-			}
 		}
 	}
 }
@@ -99,8 +192,9 @@ func (c *Conn) Close() error {
 }
 
 // NewConn wraps conn.
-func NewConn(conn *websocket.Conn) *Conn {
+func NewConn(conn *websocket.Conn, wh *websocketHandler) *Conn {
 	return &Conn{
+		wh:     wh,
 		Conn:   conn,
 		stopCh: make(chan struct{}),
 	}
