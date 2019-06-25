@@ -27,13 +27,13 @@ type CommObject struct {
 }
 
 type CommRequest struct {
-	Id  string `json:"Id"`
-	Msg string `json:"Msg"`
+	Id  string `json:"id"`
+	Msg string `json:"msg"`
 }
 
 type CommResponse struct {
-	Id  string `json:"Id"`
-	Msg string `json:"Msg"`
+	Id  string `json:"id"`
+	Msg string `json:"msg"`
 }
 
 type CommConn struct {
@@ -67,6 +67,8 @@ func (m *CommManager) Bind(userID string, conn *Conn) error {
 		commMap: make(map[string]*CommObject),
 	}
 
+	var user = userID
+	conn.userId = &user
 	m.userConnCommMap[userID] = &cc
 
 	return nil

@@ -50,6 +50,11 @@
             console.log("Receive message: " + e.data);
 
             var insert = "<p>Receive: " + e.data + "</p>";
+            var mm = {
+                "kind": 255,
+                "body": e.data
+            }
+            sock.send(JSON.stringify(mm))
             document.getElementsByClassName("content")[0].innerHTML += insert;
         };
     </script>

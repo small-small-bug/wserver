@@ -133,7 +133,7 @@ func (c *Conn) HandleCommand(body string) error {
 
 	obj, _ := wh.cm.lookupCommand(*userID, commandID)
 
-	if obj != nil {
+	if obj == nil {
 		return errors.New("cannot find this command")
 	}
 

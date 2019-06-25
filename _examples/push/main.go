@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 	"time"
 )
@@ -22,7 +23,12 @@ func main() {
 		}
 		b, _ := json.Marshal(pm)
 
-		http.DefaultClient.Post(pushURL, contentType, bytes.NewReader(b))
+		resp, _ := http.DefaultClient.Post(pushURL, contentType, bytes.NewReader(b))
+
+		body, _ := ioutil.ReadAll(resp.Body)
+		fmt.Println(string(body))
+
+		resp.Body.Close()
 
 		time.Sleep(time.Second)
 	}
