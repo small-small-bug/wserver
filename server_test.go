@@ -1,9 +1,12 @@
 package wserver
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net/http"
 	"strconv"
 	"testing"
 	"time"
@@ -15,7 +18,6 @@ import (
 func Test_Server_1(t *testing.T) {
 	port := 12345
 	userID := uuid.New().String()
-	event := "e1"
 
 	count := 100
 
@@ -26,65 +28,103 @@ func Test_Server_1(t *testing.T) {
 	time.Sleep(time.Millisecond * 300)
 
 	// push message
-	registerCh := make(chan struct{})
-	pushCh := make(chan struct{})
+	done := make(chan struct{})
 	go func() {
-		<-registerCh
+		time.Sleep(time.Second)
+		log.Println("start to push ...")
+		pushURL := "http://127.0.0.1:12345/push"
+		contentType := "application/json"
+
 		for i := 0; i < count; i++ {
-			msg := fmt.Sprintf("hello -- %d", i)
-			_, err := s.Push(userID, event, msg)
-			if err != nil {
-				t.Errorf("push message fail: %v", err)
+			pm := CommMessage{
+				UserID:  userID,
+				CommID:  uuid.New().String(),
+				Message: fmt.Sprintf("Hello in %d", i),
 			}
+			b, _ := json.Marshal(pm)
 
-			// time.Sleep(time.Microsecond)
+			resp, _ := http.DefaultClient.Post(pushURL, contentType, bytes.NewReader(b))
+
+			body, _ := ioutil.ReadAll(resp.Body)
+			fmt.Println(string(body))
+
+			resp.Body.Close()
+
+			time.Sleep(time.Microsecond)
 		}
 
-		if _, err := s.Drop(userID, ""); err != nil {
-			t.Errorf("drop connections fail: %v", err)
-		}
-
-		close(pushCh)
+		close(done)
 	}()
 
 	// dial websocket
+	log.Println("start to connect ...")
 	url := fmt.Sprintf("ws://127.0.0.1:%d/ws", port)
-	conn, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		t.Fatalf("dial websocket url fail: %v", err)
-	}
 
-	// register
-	rm := RegisterMessage{
-		Token: userID,
-		Event: event,
-	}
-	if err := conn.WriteJSON(rm); err != nil {
-		t.Fatalf("registe fail: %v", err)
-	}
-	time.Sleep(100 * time.Millisecond)
-	close(registerCh)
+	_ = runBasicClient(userID, url, done)
 
-	// read
-	cnt := 0
-	for {
-		_, r, err := conn.NextReader()
-		if err != nil {
-			break
-		}
-		b, _ := ioutil.ReadAll(r)
-		t.Logf("Msg: %s", string(b))
-
-		cnt++
-	}
-
-	if cnt != count {
-		t.Errorf("message received count: %d, expected %d", cnt, count)
-	}
 }
 
 func runBasicWServer(s *Server) {
 	if err := s.ListenAndServe(); err != nil {
 		log.Fatalln(err)
+	}
+}
+
+func runBasicClient(userID, server string, done chan struct{}) error {
+
+	c, _, err := websocket.DefaultDialer.Dial(server, nil)
+	if err != nil {
+		log.Fatal("dial:", err)
+	}
+	log.Println("start to run client")
+	defer c.Close()
+
+	go func() {
+		for {
+			_, message, err := c.ReadMessage()
+			if err != nil {
+				log.Println("read:", err)
+				return
+			}
+			log.Printf("recv: %s", message)
+			wsm := WSMessage{
+				Kind: NormalMessageType,
+				Body: string(message),
+			}
+
+			strMsg, _ := json.Marshal(wsm)
+			err = c.WriteMessage(websocket.TextMessage, []byte(strMsg))
+			if err != nil {
+				return
+			}
+		}
+	}()
+
+	rm := RegisterMessage{
+		Token: userID,
+		Event: "what ever",
+	}
+	strRm, _ := json.Marshal(rm)
+	msg := WSMessage{
+		Kind: RegisterMessageType,
+		Body: string(strRm),
+	}
+
+	strMsg, _ := json.Marshal(msg)
+
+	err = c.WriteMessage(websocket.TextMessage, []byte(strMsg))
+
+	if err != nil {
+		log.Println("write:", err)
+		return err
+	}
+	log.Println("register succeed")
+
+	// wait until the server close the connection
+	for {
+		select {
+		case <-done:
+			return nil
+		}
 	}
 }

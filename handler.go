@@ -79,6 +79,7 @@ func (wh *websocketHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 
 	conn.Listen()
+	wh.cm.Unbind(conn)
 }
 
 // closeConns unbind conns filtered by userID and event and close them.

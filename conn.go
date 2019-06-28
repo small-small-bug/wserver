@@ -6,9 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"io"
-	"log"
 	"sync"
-	"time"
 )
 
 const (
@@ -146,21 +144,7 @@ func (c *Conn) HandleCommand(body string) error {
 // Listen listens for receive data from websocket connection. It blocks
 // until websocket connection is closed.
 func (c *Conn) Listen() {
-	c.Conn.SetCloseHandler(func(code int, text string) error {
-		if c.BeforeCloseFunc != nil {
-			c.BeforeCloseFunc()
-		}
 
-		if err := c.Close(); err != nil {
-			log.Println(err)
-		}
-
-		message := websocket.FormatCloseMessage(code, "")
-		err := c.Conn.WriteControl(websocket.CloseMessage, message, time.Now().Add(time.Second))
-		return err
-	})
-
-	// Keeps reading from Conn util get error.
 ReadLoop:
 	for {
 		select {

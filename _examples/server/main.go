@@ -17,11 +17,7 @@ func main() {
 	// client for registe.
 	server.AuthToken = func(token string) (userID string, ok bool) {
 		// TODO: check if token is valid and calculate userID
-		if token == "aaa" {
-			return "jack", true
-		}
-
-		return "", false
+		return token, true
 	}
 
 	// Set PushAuth func to check push request. If the request is valid, returns
