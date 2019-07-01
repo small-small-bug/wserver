@@ -6,6 +6,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"io"
+	"log"
 	"sync"
 )
 
@@ -154,6 +155,7 @@ ReadLoop:
 			messageType, r, err := c.Conn.NextReader()
 			if err != nil {
 				// TODO: handle read error maybe
+				log.Println(err.Error())
 				break ReadLoop
 			}
 			// TODO handle error

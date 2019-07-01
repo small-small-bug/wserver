@@ -33,25 +33,30 @@ func main() {
 
 	users := make([]string, *concurrency)
 
+	locks := make(chan struct{}, 10)
+
 	for i := range users {
 		users[i] = strconv.Itoa(i)
 		//start the client
+		//log.Println("start to new connection: *s", users[i])
 		go func(user string) {
 			defer wg.Done()
-			newEchoClient(*url, user, done)
+			locks <- struct{}{}
+			newEchoClient(*url, user, done, locks)
 		}(users[i])
 	}
 	// wait for termination
+	log.Println("finished new clients")
 	wg.Wait()
 }
 
-func newEchoClient(url, user string, done chan struct{}) error {
+func newEchoClient(url, user string, done, limit chan struct{}) error {
 	c, _, err := websocket.DefaultDialer.Dial(url, nil)
 	if err != nil {
-		log.Fatal("dial:", err)
+		log.Fatal("dial:", err, user)
 		return err
 	}
-	log.Println("start to run client")
+
 	defer c.Close()
 
 	rm := wserver.RegisterMessage{
@@ -73,7 +78,9 @@ func newEchoClient(url, user string, done chan struct{}) error {
 		c.Close()
 		return err
 	}
-	log.Println("register succeed")
+
+	log.Println("connected", user)
+	<-limit
 
 	// wait until the server close the connection
 readloop:
